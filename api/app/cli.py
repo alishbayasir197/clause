@@ -2,7 +2,7 @@ import argparse
 from pathlib import Path
 import sys
 
-# Support both `uv run app/main.py` and `uv run -m app.main`.
+# Support both `uv run app/cli.py` and `uv run -m app.cli`.
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
