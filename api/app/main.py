@@ -1,34 +1,27 @@
-import argparse
-from pathlib import Path
-import sys
+from contextlib import asynccontextmanager
 
-# Support both `uv run app/main.py` and `uv run -m app.main`.
-if __package__ in (None, ""):
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from typing import Annotated, Any
 
-from app.services.chat import RAGService
-from app.services.ingestion import ingest
+from fastapi import FastAPI, Request
+from pydantic import BaseModel, StringConstraints
+from app.services.chat import RAGService, Answer
 
-
-def main():
-    parser = argparse.ArgumentParser(description="Ask Clause a question or index a document.")
-    parser.add_argument("--ingest", action="store_true", help="Rebuild the search collection.")
-    parser.add_argument("--path", help="PDF to index (used with --ingest).")
-    args = parser.parse_args()
-    if args.path and not args.ingest:
-        parser.error("--path requires --ingest")
-    if args.ingest:
-        print(f"Indexed {ingest(args.path)} chunks.")
-        return
-
-    rag_service = RAGService()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.rag = RAGService()
     try:
-        query = input("Ask a question: ").strip()
-        result = rag_service.ask(query)
-        print(f"AI: {result.answer}")
+        yield
     finally:
-        rag_service.close()
+        app.state.rag.close()
+app = FastAPI(title="Clause AI APIs", lifespan=lifespan)
 
+class AskQuestion(BaseModel):
+ question: Annotated[
+str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
 
-if __name__ == "__main__":
-    main()
+@app.get(path="/", response_model=dict[str, str])
+def health() -> dict[str, str]:
+    return {"status": "ok"}
+@app.post(path="/ask", response_model=Answer)
+def ask_query(body: AskQuestion, req: Request) -> Any:
+    return req.app.state.rag.ask(body.question)

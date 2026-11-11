@@ -1,3 +1,4 @@
+
 # OS / editor
 .DS_Store
 .vscode/
@@ -14,3 +15,8 @@ __pycache__/
 # Node (web)
 node_modules/
 .next/
+
+
+/notebooks/
+/playgrounds/
+
