@@ -4,22 +4,34 @@ from pathlib import Path
 
 from pypdf import PdfReader
 from langchain_core.documents import Document
-from langchain_qdrant import QdrantVectorStore
+from langchain_qdrant import QdrantVectorStore, RetrievalMode, FastEmbedSparse
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from qdrant_client.models import Distance, Filter, FilterSelector, VectorParams
+from qdrant_client.models import Distance, Filter, FilterSelector, VectorParams, SparseVectorParams
 
 from app.core.config import API_DIR, get_embeddings, get_qdrant_client, get_settings
 
 
+STAFF_ONLY = re.compile(r"\binternal\s*:|\bstaff[\s-]+only\b", re.IGNORECASE)
+
+
 def load(path: Path) -> list[Document]:
     reader = PdfReader(path)
-    return [
-        Document(
-            page_content=page.extract_text() or "",
-            metadata={"source": str(path), "page": index, "total_pages": len(reader.pages)},
-        )
-        for index, page in enumerate(reader.pages)
-    ]
+    docs = []
+    for index, page in enumerate(reader.pages):
+        text = page.extract_text() or ""
+        restricted = STAFF_ONLY.search(text)
+        if restricted:
+            # The shop handbook ends with a staff-only section. Remove its
+            # entire heading line and everything after it, including later pages.
+            text = text[:text.rfind("\n", 0, restricted.start()) + 1]
+        if text.strip():
+            docs.append(Document(
+                page_content=text,
+                metadata={"source": str(path), "page": index, "total_pages": len(reader.pages)},
+            ))
+        if restricted:
+            break
+    return docs
 
 
 def document_title(pages: list[Document], fallback: str) -> str:
@@ -46,7 +58,6 @@ def overview(pages: list[Document], title: str, source: str) -> Document:
         )
     return Document(page_content=summary, metadata={"source": source, "page": 0})
 
-
 def ingest(path: str | None = None) -> int:
     settings = get_settings()
 
@@ -62,6 +73,8 @@ def ingest(path: str | None = None) -> int:
         if not file.is_absolute():
             file = API_DIR / file
         pages = load(file)
+        if not pages:
+            continue
         title = document_title(pages, file.stem)
 
         # 2. Chunk, labelling each chunk with its document title so that
@@ -83,6 +96,10 @@ def ingest(path: str | None = None) -> int:
             f"but {settings.embed_model} returns {actual_dim} dimensions"
         )
 
+    sparse_embed = FastEmbedSparse(model_name="Qdrant/bm25")
+    # Resolve model downloads before replacing the existing collection.
+    list(sparse_embed.embed_documents(["index check"]))
+
     # 4. Store
     client = get_qdrant_client(settings)
 
@@ -92,9 +109,10 @@ def ingest(path: str | None = None) -> int:
 
         client.create_collection(
             collection_name=settings.collection_name,
-            vectors_config=VectorParams(
+            vectors_config={"dense": VectorParams(
                 size=settings.embed_dim, distance=Distance.COSINE
-            ),
+            )},
+            sparse_vectors_config={"sparse": SparseVectorParams()},
         )
 
         # On Windows, local-mode Qdrant can't remove the locked storage.sqlite
@@ -110,6 +128,10 @@ def ingest(path: str | None = None) -> int:
             client=client,
             collection_name=settings.collection_name,
             embedding=embed,
+            sparse_embedding=sparse_embed,
+            retrieval_mode=RetrievalMode.HYBRID,
+            vector_name="dense",
+            sparse_vector_name="sparse",
         )
         vector_store.add_documents(chunks)
     finally:
@@ -128,5 +150,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-    

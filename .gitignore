@@ -16,6 +16,6 @@ __pycache__/
 node_modules/
 .next/
 
-
+# Local experiments (Jupyter notebooks, scratch code)
 /notebooks/
 /playground/

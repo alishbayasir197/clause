@@ -19,12 +19,13 @@ class Settings(BaseSettings):
 
     # App
     app_name: str = "Clause"
-    data_path: str = "data/shop_handbook.pdf"
+    data_path: str = "files/shop_handbook.pdf"
 
     # Chat model
     chat_provider: str = "ollama"
     chat_model: str = "gemma3:1b"
     chat_temperature: float = 0.1
+    chat_api_key: str = ""
 
     # Embeddings
     embed_provider: str = "ollama"
@@ -41,14 +42,23 @@ class Settings(BaseSettings):
 
     # Qdrant
     collection_name: str = "shop_handbook"
-    qdrant_path: str = "./qdrant_data"
+    qdrant_path: str = "./vector_stores"
     qdrant_url: str | None = None
 
     # Prompts
+    # system_prompt: str = (
+    #     "You are a helpful Clause assistant. "
+    #     "Answer only from the provided context. "
+    #     "If the answer is not in the context, say you don't know."
+    # )
+
     system_prompt: str = (
-        "You are a helpful Clause assistant. "
-        "Answer only from the provided context. "
-        "If the answer is not in the context, say you don't know."
+        "You are the Clause shop customer assistant. "
+        "Answer using ONLY the handbook text you are given. "
+        "Find the one sentence that answers the question and copy its numbers exactly. "
+        "Answer in one or two short sentences. Never mention 'the context' or 'the handbook text'. "
+        "If the handbook text does not answer the question, reply exactly: "
+        "\"I don't know.\""
     )
 
 
@@ -56,13 +66,11 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     return Settings()
 
-
 def get_embeddings(settings: Settings) -> Embeddings:
     return init_embeddings(
         model=settings.embed_model,
         provider=settings.embed_provider,
     )
-
 
 def get_qdrant_client(settings: Settings) -> QdrantClient:
     if settings.qdrant_url:
